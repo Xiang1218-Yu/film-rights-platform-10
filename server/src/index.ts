@@ -1,9 +1,15 @@
 import express from 'express';
 import { approve, assets, budgetLines, contracts, createApproval, dashboard, projectSummary, projects, rightsConflicts } from './domain.js';
+import { acknowledgeRisk, paymentExposure, paymentNodeDetail, refreshPaymentExposure, updateDeliveryDate } from './paymentExposure.js';
 const app = express(); app.use(express.json());
 app.get('/api/dashboard', (_req, res) => res.json(dashboard()));
 app.get('/api/projects', (_req, res) => res.json(projects));
-app.get('/api/projects/:id/summary', (req, res) => { const result = projectSummary(req.params.id); if (!result.project) return res.status(404).json({ message: '项目不存在' }); res.json(result); });
+app.get('/api/projects/:id/summary', (req, res) => { const result = projectSummary(req.params.id); if (!result.project) return res.status(404).json({ message: '项目不存在' }); const exposure = paymentExposure(req.params.id); res.json({ ...result, paymentExposure: exposure ? { ...exposure.totals, riskCount: exposure.risks.length, unacknowledgedRisks: exposure.risks.filter(risk => !risk.acknowledged).length } : null }); });
+app.get('/api/projects/:id/payment-exposure', (req, res) => { const exposure = paymentExposure(req.params.id, Number(req.query.window) || 30); if (!exposure) return res.status(404).json({ message: '项目不存在' }); res.json(exposure); });
+app.post('/api/projects/:id/payment-exposure/refresh', (req, res) => { const result = refreshPaymentExposure(req.params.id, req.body?.actor); if (!result) return res.status(404).json({ message: '项目不存在' }); if (!result.ok) return res.status(409).json({ message: '付款暴露刷新失败', errors: result.errors, snapshot: result.snapshot }); res.json(result); });
+app.post('/api/projects/:id/payment-exposure/risks/:riskId/acknowledge', (req, res) => { const risk = acknowledgeRisk(req.params.id, decodeURIComponent(req.params.riskId), req.body?.actor || '制片主任', req.body?.note); if (!risk) return res.status(404).json({ message: '风险不存在' }); res.json(risk); });
+app.patch('/api/projects/:id/delivery-date', (req, res) => { const result = updateDeliveryDate(req.params.id, req.body?.deliveryDate, req.body?.actor || '制片主任'); if (!result) return res.status(400).json({ message: '项目不存在或交付日非法' }); res.json(result); });
+app.get('/api/payment-nodes/:nodeId', (req, res) => { const detail = paymentNodeDetail(req.params.nodeId); if (!detail) return res.status(404).json({ message: '付款节点不存在' }); res.json(detail); });
 app.get('/api/projects/:id/rights-conflicts', (req, res) => res.json(rightsConflicts(req.params.id)));
 app.get('/api/projects/:id/assets', (req, res) => res.json(assets.filter(asset => asset.projectId === req.params.id)));
 app.get('/api/projects/:id/contracts', (req, res) => res.json(contracts.filter(contract => contract.projectId === req.params.id)));
